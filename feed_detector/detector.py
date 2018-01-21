@@ -78,7 +78,7 @@ class Entry(object):
             classes = el.get('class', '').split()[:2] # important class(es) may be put first.
             paths   = [('%s.%s' % (tag, x),) for x in classes]
             tagid   = el.get('id', '').strip() if rpaths else ''
-            if tagid:
+            if tagid and tag != 'a':
                 paths.append(('%s#%s' % (tag, tagid),))
             paths.append((tag,))
         if rpaths:
@@ -227,6 +227,8 @@ class Optimizer(object):
         self._consider_inclusion()
         result = sorted([x for x in itervalues(self._groups) if x.score > 0],
                         key=lambda x:x.score, reverse=True)
+        if not result and self._groups:
+            result = [sorted(itervalues(self._groups), key=lambda x:x.score, reverse=True)[0]]
         return result
 
     def _remove_small_groups(self, threshold):
