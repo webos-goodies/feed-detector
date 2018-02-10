@@ -54,7 +54,7 @@ class Entry(object):
         self.paths    = self._build_paths(element)
         self.fullpath = self._build_fullpath(element)
         if not self.title:
-            for img in el.iterdescendants('img'):
+            for img in self.element.iterdescendants('img'):
                 self.title = (img.get('alt') or '').strip() or (img.get('title') or '').strip()
                 if self.title:
                     self.score = SCORE_IMG

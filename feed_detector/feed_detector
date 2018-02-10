@@ -1,0 +1,56 @@
+#! /usr/bin/env python
+# -*- coding: utf-8 -*-
+
+from __future__ import absolute_import, division, print_function, unicode_literals
+
+
+import sys, time
+from optparse import OptionParser
+
+if sys.version_info[0] == 3:
+    from urllib.request import Request, urlopen
+else:
+    from urllib2 import Request, urlopen
+
+from feed_detector.coordinator import BaseCoordinator
+from feed_detector.document    import Document
+from feed_detector.filter      import BodyRemovalFilter
+from feed_detector.formatter   import PrintFormatter
+
+
+class PrintCoordinator(BaseCoordinator):
+
+  def __init__(self, config={}):
+    config = dict(config, filters=[BodyRemovalFilter], formatter=PrintFormatter)
+    super(PrintCoordinator, self).__init__(config)
+
+
+def main():
+    parser = OptionParser(usage="%prog: [options] [file]")
+    parser.add_option('-u', '--url', default=None, help="use URL instead of a local file")
+    options, args = parser.parse_args()
+
+    if not (len(args) == 1 or options.url):
+        parser.print_help()
+        sys.exit(1)
+
+    file = None
+    if options.url:
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        request = Request(options.url, None, headers)
+        file    = urlopen(request)
+    else:
+        file = open(args[0], 'rt')
+    try:
+        doc = Document(file.read(), url=options.url)
+    finally:
+        file.close()
+        file = None
+
+    t = time.time()
+    PrintCoordinator({ 'filters':[BodyRemovalFilter], 'formatter':PrintFormatter }).run(doc)
+    print("\n%f secs." % (time.time() - t))
+
+
+if __name__ == '__main__':
+    main()
