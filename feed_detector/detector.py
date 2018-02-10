@@ -48,15 +48,16 @@ class Entry(object):
     def __init__(self, element):
         self.score    = SCORE_LINK
         self.element  = element
-        self.title    = (element.text_content() or u'').strip()
+        self.title    = ((element.text_content() or u'').strip() or
+                         (element.get('title') or '').strip())
         self.url      = (element.get('href') or u'').strip()
         self.paths    = self._build_paths(element)
         self.fullpath = self._build_fullpath(element)
         if not self.title:
-            imgs = [x for x in element.iterdescendants('img')]
-            if len(imgs) == 1:
-                self.title = (imgs[0].get('alt') or u'').strip()
-                self.score = SCORE_IMG
+            for img in el.iterdescendants('img'):
+                self.title = (img.get('alt') or '').strip() or (img.get('title') or '').strip()
+                if self.title:
+                    self.score = SCORE_IMG
         if DENY_URLS_RE.match(self.url):
             self.score = SCORE_DENY_URL
         elif not self.title:
