@@ -107,27 +107,25 @@ class Entry(object):
 
 
 class Path(object):
-    __slots__ = ('path', 'key', '_entries', '_entry_map', '_fingerprint')
+    __slots__ = ('path', 'key', 'entries', '_entry_keys', '_fingerprint')
 
     def __init__(self, path):
         self.path         = path
         self.key          = Path.key_from(path)
-        self._entries     = None
-        self._entry_map   = {}
+        self.entries      = []
+        self._entry_keys  = set()
         self._fingerprint = None
-
-    @cached_property
-    def entries(self):
-        return list(itervalues(self._entry_map))
 
     @cached_property
     def fingerprint(self):
-        return frozenset(iterkeys(self._entry_map))
+        return frozenset(self._entry_keys)
 
     def add_entry(self, entry):
-        self._entry_map[id(entry)] = entry
-        self._entries     = None
-        self._fingerprint = None
+        key = id(entry.element)
+        if key not in self._entry_keys:
+            self._entry_keys.add(key)
+            self.entries.append(entry)
+            self._fingerprint = None
 
     @classmethod
     def key_from(cls, path):
@@ -139,11 +137,8 @@ class PathBuilder(object):
     def __init__(self, document):
         self._doc   = document
         self._paths = {}
+        self.paths  = []
         self._build_tree()
-
-    @property
-    def paths(self):
-        return self._paths.values()
 
     def _remove_duplicated_id(self):
         dups = set()
@@ -161,6 +156,7 @@ class PathBuilder(object):
             if value is None:
                 value = Path(sub)
                 self._paths[key] = value
+                self.paths.append(value)
             value.add_entry(entry)
 
     def _build_tree(self):
@@ -213,30 +209,32 @@ class EntryGroup(object):
 class Optimizer(object):
 
     def __init__(self, paths):
-        self._groups = {}
+        group_map    = {}
+        self._groups = []
         for path in paths:
             if len(path.entries) <= 0:
                 continue
             key   = path.fingerprint
-            group = self._groups.get(key)
+            group = group_map.get(key)
             if group is None:
-                group = self._groups[key] = EntryGroup(path.entries)
+                group = group_map[key] = EntryGroup(path.entries)
+                self._groups.append(group)
             group.add_path(path)
 
     def optimize(self):
         self._remove_small_groups(4)
         self._consider_inclusion()
-        result = sorted([x for x in itervalues(self._groups) if x.score > 0],
+        result = sorted([x for x in self._groups if x.score > 0],
                         key=lambda x:x.score, reverse=True)
         if not result and self._groups:
-            result = [sorted(itervalues(self._groups), key=lambda x:x.score, reverse=True)[0]]
+            result = [sorted(self._groups, key=lambda x:x.score, reverse=True)[0]]
         return result
 
     def _remove_small_groups(self, threshold):
-        self._groups = dict([(k, v) for k, v in iteritems(self._groups) if len(v) > threshold])
+        self._groups = [x for x in self._groups if len(x) > threshold]
 
     def _consider_inclusion(self):
-        for a, b in itertools.combinations(itervalues(self._groups), 2):
+        for a, b in itertools.combinations(self._groups, 2):
             if a.score <= 0 or b.score <= 0:
                 continue
             lab, lba = len(a.url_set - b.url_set), len(b.url_set - a.url_set)

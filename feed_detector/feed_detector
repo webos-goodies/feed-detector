@@ -4,7 +4,7 @@
 from __future__ import absolute_import, division, print_function, unicode_literals
 
 
-import sys, time
+import os.path, re, sys, time
 from optparse import OptionParser
 
 if sys.version_info[0] == 3:
@@ -18,6 +18,9 @@ from feed_detector.filter      import BodyRemovalFilter
 from feed_detector.formatter   import PrintFormatter
 
 
+URL_RE = re.compile(r'\Ahttps?://', re.I)
+
+
 class PrintCoordinator(BaseCoordinator):
 
   def __init__(self, config={}):
@@ -26,23 +29,26 @@ class PrintCoordinator(BaseCoordinator):
 
 
 def main():
-    parser = OptionParser(usage="%prog: [options] [file]")
-    parser.add_option('-u', '--url', default=None, help="use URL instead of a local file")
+    parser = OptionParser(usage="%prog: [options] <file or url>")
+    parser.add_option('-u', '--url',  default=None, help="A document url")
     options, args = parser.parse_args()
 
-    if not (len(args) == 1 or options.url):
+    if len(args) != 1:
         parser.print_help()
         sys.exit(1)
 
     file = None
-    if options.url:
+    url  = None
+    if URL_RE.match(args[0]):
         headers = {'User-Agent': 'Mozilla/5.0'}
-        request = Request(options.url, None, headers)
+        request = Request(args[0], None, headers)
         file    = urlopen(request)
+        url     = options.url or args[0]
     else:
         file = open(args[0], 'rt')
+        url  = options.url or 'file://%s' % os.path.abspath(args[0])
     try:
-        doc = Document(file.read(), url=options.url)
+        doc = Document(file.read(), url=url)
     finally:
         file.close()
         file = None
