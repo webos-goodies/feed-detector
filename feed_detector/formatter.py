@@ -12,5 +12,5 @@ class PrintFormatter(BaseComponent):
         for i, group in enumerate(groups):
             print("\nGroup %d : %f" % (i + 1, group.score))
             for entry in group.entries:
-                print("  %s\n    %s" % (entry.title, entry.url))
+                print("  %s : %.2f\n    %s" % (entry.title, entry.score, entry.url))
         return None
