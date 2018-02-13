@@ -35,8 +35,10 @@ SCORE_DUP_TITLE = -1  # penalty of title duplication (but not url)
 SCORE_DUP_KEY   = -6  # penalty of url and title duplication
 
 HEADER_TAGS     = frozenset(('h1', 'h2', 'h3', 'h4', 'h5', 'h6'))
-WRAP_TAGS       = frozenset(('ul', 'ol', 'dl', 'table', 'footer', 'header', 'main', 'nav'))
+GROUPING_TAGS   = frozenset(('ul', 'ol', 'dl', 'table', 'footer', 'header', 'main', 'nav'))
 NEST_TAGS       = frozenset(('ul', 'ol'))
+
+UID_ATTR        = '_fd_uid_'
 
 
 def cached_property(f):
@@ -132,7 +134,7 @@ class Path(object):
         return frozenset(self._entry_keys)
 
     def add_entry(self, entry):
-        key = entry.element.get('_uid_')
+        key = entry.element.get(UID_ATTR, '0')
         if key not in self._entry_keys:
             self._entry_keys.add(key)
             self.entries.append(entry)
@@ -169,32 +171,35 @@ class PathBuilder(object):
         self._prev_id += 1
         return self._prev_id
 
-    def _context_base_grouping(self, el):
-        following_id = self._cur_id
-        nesting = self._nesting
-        tag     = el.tag.lower()
+    def _cbg_anchor(self, el, tag):
+        self._cbg_map[el.get(UID_ATTR, '0')] = self._cur_id
+        self._context_base_grouping(el)
 
-        el.set('_uid_', unicode(self._el_id))
-        self._el_id += 1
+    def _cbg_header(self, el, tag):
+        self._cur_id = self._hdr_id
+        self._context_base_grouping(el)
+        self._cur_id = self._new_id()
 
-        if tag == 'a':
-            self._cbg_map[el.get('_uid_')] = self._cur_id
-        elif tag in NEST_TAGS and self._nesting:
-            pass # Do nothing
-        elif tag in HEADER_TAGS:
-            self._cur_id  = self._hdr_id
-            following_id = self._new_id()
-        elif tag in WRAP_TAGS:
-            self._cur_id = self._new_id()
+    def _cbg_grouping(self, el, tag):
+        self._cur_id = self._new_id()
+        self._context_base_grouping(el)
+        self._cur_id = self._new_id()
 
-        if tag in NEST_TAGS:
-            self._nesting = True
-
-        for child in el:
-            self._context_base_grouping(child)
-
-        self._cur_id  = following_id
-        self._nesting = nesting
+    def _context_base_grouping(self, parent):
+        for el in parent:
+            tag = el.tag.lower()
+            el.set(UID_ATTR, unicode(self._el_id))
+            self._el_id += 1
+            if tag == 'a':
+                self._cbg_anchor(el, tag)
+            elif tag in NEST_TAGS and self._nesting:
+                self._context_base_grouping(el)
+            elif tag in HEADER_TAGS:
+                self._cbg_header(el, tag)
+            elif tag in GROUPING_TAGS:
+                self._cbg_grouping(el, tag)
+            else:
+                self._context_base_grouping(el)
 
     def _add_path(self, path, entry):
         for i in xrange(3, len(path) + 1):
@@ -209,7 +214,7 @@ class PathBuilder(object):
 
     def _iter_links(self, doc):
         default_id = self._new_id()
-        return (Entry(x, self._cbg_map.get(x.get('_uid_'), default_id))
+        return (Entry(x, self._cbg_map.get(x.get(UID_ATTR, '0'), default_id))
                 for x in doc.iterdescendants('a')
                 if LINK_MATCH(x.get(u'href', u'')))
 
@@ -223,14 +228,15 @@ class PathBuilder(object):
 
 
 class EntryGroup(object):
-    __slots__ = ('score', 'paths', 'entries', 'url_set')
+    __slots__ = ('score', 'cbg_score', 'paths', 'entries', 'url_set')
 
     def __init__(self, entries):
         assert len(entries) > 0, 'Group entries must not be empty'
-        self.score   = sum([x.score for x in entries])
-        self.paths   = []
-        self.entries = list(entries)
-        self.url_set = frozenset([x.url for x in entries])
+        self.score     = sum([x.score for x in entries])
+        self.cbg_score = self.score
+        self.paths     = []
+        self.entries   = list(entries)
+        self.url_set   = frozenset([x.url for x in entries])
         self._score_duplication()
         self._score_fullpath()
         self._score_cbg()
@@ -266,9 +272,9 @@ class EntryGroup(object):
             self.score /= count * 0.9
 
     def _score_cbg(self):
-        scale = 0.6 if self.score > 0 else 1.5
+        scale = 0.6 if self.cbg_score > 0 else 1.5
         for x in xrange(1, len(frozenset([x.cbg_id for x in self.entries]))):
-            self.score *= 0.6
+            self.cbg_score *= 0.6
 
 
 class Optimizer(object):
@@ -288,7 +294,7 @@ class Optimizer(object):
 
     def optimize(self):
         self._remove_small_groups(4)
-        self._consider_inclusion()
+        self._occlusion_culling()
         groups = sorted(self._groups, key=lambda x:x.score, reverse=True)
         result = [x for x in groups if x.score > 0]
         if len(result) >= 4:
@@ -299,13 +305,14 @@ class Optimizer(object):
     def _remove_small_groups(self, threshold):
         self._groups = [x for x in self._groups if len(x) > threshold]
 
-    def _consider_inclusion(self):
+    def _occlusion_culling(self):
         for a, b in itertools.combinations(self._groups, 2):
-            if a.score <= 0 or b.score <= 0:
+            if a.cbg_score <= 0 or b.cbg_score <= 0:
                 continue
             lab, lba = len(a.url_set - b.url_set), len(b.url_set - a.url_set)
             if lab == 0 or lba == 0:
-                (a if a.score < b.score else b).score = -65536
+                culled = (a if a.cbg_score < b.cbg_score else b)
+                culled.score = culled.cbg_score = -65536
 
 
 class Detector(BaseComponent):
