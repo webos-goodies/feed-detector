@@ -3,6 +3,9 @@
 from __future__ import absolute_import, division, print_function, unicode_literals
 
 
+__all__ = ('BaseComponent', 'AbstractFilter', 'AbstractOptimizer')
+
+
 class BaseComponent(object):
     DEFAULT_CONFIG = {}
 

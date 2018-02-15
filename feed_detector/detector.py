@@ -10,18 +10,15 @@ from collections import defaultdict
 
 from .abstract   import BaseComponent
 from .compat     import *
+from .util       import *
 
 
-LINK_MATCH    = re.compile(r'\Ahttps?://', re.I).match
-SHORT_MATCH   = re.compile(r'\A[\u0001-\u02ff]*\Z').match
-BLANK_FINDALL = re.compile(r'\s+', re.U).findall
-SHRINK_SUB    = re.compile(r'[\x00-\x40\x5b-\x60\x7b-\x7f]+').sub
+__all__ = ('Entry', 'Path', 'PathBuilder', 'EntryGroup', 'Optimizer', 'Detector')
 
-DENY_URLS = ('www.facebook.com/sharer/sharer.php',
-             'twitter.com/intent/tweet',
-             'twitter.com/share')
-DENY_URLS_RE = re.compile(r'\Ahttps?://(?:' +
-                          '|'.join([re.escape(x) for x in DENY_URLS]) + ')')
+
+SHORT_MATCH     = re.compile(r'\A[\u0001-\u02ff]*\Z').match
+BLANK_FINDALL   = re.compile(r'\s+', re.U).findall
+SHRINK_SUB      = re.compile(r'[\x00-\x40\x5b-\x60\x7b-\x7f]+').sub
 
 SCORE_LINK      = 2   # normal link
 SCORE_IMG       = 1   # image link
@@ -69,7 +66,7 @@ class Entry(object):
                 self.title = (img.get('alt') or '').strip() or (img.get('title') or '').strip()
                 if self.title:
                     self.score = SCORE_IMG
-        if DENY_URLS_RE.match(self.url):
+        if not is_valid_url(self.url):
             self.score = SCORE_DENY_URL
         elif not self.title:
             self.score = SCORE_NO_TITLE
@@ -215,8 +212,7 @@ class PathBuilder(object):
     def _iter_links(self, doc):
         default_id = self._new_id()
         return (Entry(x, self._cbg_map.get(x.get(UID_ATTR, '0'), default_id))
-                for x in doc.iterdescendants('a')
-                if LINK_MATCH(x.get(u'href', u'')))
+                for x in doc.iterdescendants('a') if LINK_MATCH(x.get(u'href', u'')))
 
     def _build_tree(self):
         self._remove_duplicated_id()

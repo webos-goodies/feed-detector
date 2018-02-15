@@ -17,11 +17,7 @@ from .abstract import BaseComponent
 from .compat   import *
 
 
-import sys
-if sys.version_info[0] == 2:
-    STR_TYPE = unicode
-elif sys.version_info[0] == 3:
-    STR_TYPE = str
+__all__ = ('Encoding', 'Document')
 
 
 # Encoding detection code from python-readability.

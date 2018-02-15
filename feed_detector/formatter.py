@@ -6,6 +6,9 @@ from .abstract import BaseComponent
 from .compat   import *
 
 
+__all__ = ('PrintFormatter',)
+
+
 class PrintFormatter(BaseComponent):
 
     def run(self, doc, groups):

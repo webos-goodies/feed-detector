@@ -3,6 +3,10 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 import sys
 
 
+__all__ = (('STR_TYPE', 'to_unicode', 'iterkeys', 'itervalues', 'iteritems', 'viewkeys') +
+           (('xrange',) if sys.version_info[0] >= 3 else ()))
+
+
 if sys.version_info[0] >= 3:
     xrange = range
     STR_TYPE = str

@@ -6,6 +6,9 @@ from .abstract  import BaseComponent
 from .detector  import Detector
 
 
+__all__ = ('BaseCoordinator',)
+
+
 class BaseCoordinator(BaseComponent):
 
     def __init__(self, config={}):

@@ -7,6 +7,9 @@ from .abstract import AbstractFilter
 from .compat   import to_unicode
 
 
+__all__ = ('BodyRemovalFilter',)
+
+
 DIV_TO_P_TAGS = (u'a', u'blockquote', u'dl', u'div', u'img', u'ol', u'p', u'pre', u'table', u'ul')
 UNLIKELY_CANDIDATES_RE = re.compile(u'combx|comment|community|disqus|extra|foot|header|menu|remark|rss|shoutbox|sidebar|sponsor|ad-break|agegate|pagination|pager|popup|tweet|twitter', re.I)
 MAYBE_CANDIDATE_RE = re.compile(u'and|article|body|column|main|shadow', re.I)
@@ -48,9 +51,9 @@ def _score_node(el):
     name = el.tag.lower()
     if name == 'div':
         score += 5
-    elif name in ('pre', 'td', 'blockquote'):
+    elif name in ('pre', 'blockquote'):
         score += 3
-    elif name in ("address", "ol", "ul", "dl", "dd", "dt", "li", "form"):
+    elif name in ("address", "ol", "ul", "dl", "dd", "dt", "li", "td", "form"):
         score -= 3
     elif name in ("h1", "h2", "h3", "h4", "h5", "h6", "th"):
         score -= 5
@@ -116,7 +119,7 @@ class BodyRemovalFilter(AbstractFilter):
         min_len = self.config.get('body_minimum_length', 0)
         scores  = self._scores
         ordered = []
-        for el in self._root.iterdescendants('p', 'pre', 'td'):
+        for el in self._root.iterdescendants('p', 'pre'):
             parent_el = el.getparent()
             if parent_el is None:
                 continue
