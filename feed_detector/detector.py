@@ -185,7 +185,7 @@ class PathBuilder(object):
     def _context_base_grouping(self, parent):
         for el in parent:
             tag = el.tag.lower()
-            el.set(UID_ATTR, unicode(self._el_id))
+            el.set(UID_ATTR, STR_TYPE(self._el_id))
             self._el_id += 1
             if tag == 'a':
                 self._cbg_anchor(el, tag)
