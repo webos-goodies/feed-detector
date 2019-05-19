@@ -72,7 +72,8 @@ class BodyRemovalFilter(AbstractFilter):
             drop_list = []
             for score in scores:
                 self._collect_exclude_elements(score['element'])
-                self._collect_drop_paths(drop_list, score['element'])
+                if score['element'].get('x', '') not in self._excludes:
+                    self._collect_drop_paths(drop_list, score['element'])
             self._drop_text_elements(doc, drop_list)
 
     def _prepare(self, doc):
@@ -81,6 +82,7 @@ class BodyRemovalFilter(AbstractFilter):
         self._doc.add_xpath()
         self._scores = {}
         self._excludes = set()
+        self._done = set()
 
     def _remove_unlikely_candidates(self):
         except_tags = (u'html', u'body')
@@ -172,16 +174,18 @@ class BodyRemovalFilter(AbstractFilter):
         return reduced
 
     def _collect_exclude_elements(self, element):
-        for el in element.iterdescendants("h1", "h2", "h3", "h4", "h5", "h6"):
+        for el in element.iter("h1", "h2", "h3", "h4", "h5", "h6"):
             if _class_weight(el) < 0 or _get_link_density(el) > 0.33:
                 self._excludes.add(el.get('x', u''))
 
         min_len = self.config.get('body_minimum_length', 0)
-        allowed = {}
+        done = self._done
         scores = self._scores
-        for el in reversed(list(element.iterdescendants('table', 'ul', 'div'))):
-            if el in allowed:
+        for el in reversed(list(element.iter('table', 'ul', 'div'))):
+            if el in done:
                 continue
+            done.add(el)
+
             weight = _class_weight(el)
             score = scores[el]['score'] if el in scores else 0
             tag = el.tag
@@ -192,7 +196,6 @@ class BodyRemovalFilter(AbstractFilter):
                 counts = {}
                 for kind in ('p', 'img', 'li', 'a', 'embed', 'input'):
                     counts[kind] = len(el.findall('.//%s' % kind))
-                counts["li"] -= 100
                 counts["input"] -= len(el.findall('.//input[@type="hidden"]'))
 
                 parent_node = el.getparent()
@@ -201,9 +204,13 @@ class BodyRemovalFilter(AbstractFilter):
 
                 content_length = _get_text_length(el)
                 link_density = _get_link_density(el)
-                to_remove = (
+                to_remove = False
+                if tag == 'ul' or tag == 'ol':
+                    to_remove = counts['li'] == counts['a']
+                else:
+                    to_remove = counts['li'] - 100 > counts['p']
+                to_remove = to_remove or (
                     (counts['p'] and counts['img'] > 1 + counts['p'] * 1.3) or
-                    (counts['li'] > counts['p'] and tag != 'ul' and tag != 'ol') or
                     (counts['input'] > counts['p'] / 3) or
                     (content_length < min_len and counts['img'] == 0) or
                     (content_length < min_len and counts['img'] > 2) or
@@ -212,9 +219,12 @@ class BodyRemovalFilter(AbstractFilter):
                     ((counts["embed"] == 1 and content_length < 75) or counts["embed"] > 1))
                 if not to_remove and not content_length:
                     to_remove = True
-                    for i in el.iterdescendants('table', 'ul', 'div'):
-                        allowed[i] = True
                 if to_remove:
+                    el = next(el.iterancestors('a'), el)
+                    self._excludes.add(el.get('x', u''))
+            elif tag == 'ul' or tag == 'ol':
+                if len(el.findall('.//li')) == len(el.findall('.//a')):
+                    el = next(el.iterancestors('a'), el)
                     self._excludes.add(el.get('x', u''))
 
         self._excludes.discard(u'')
@@ -222,11 +232,12 @@ class BodyRemovalFilter(AbstractFilter):
     def _collect_drop_paths(self, drop_list, element):
         drop = True
         sub_list = []
+        excludes = self._excludes
         for child in element:
             path = child.get('x', '')
             if not path:
                 continue
-            if path in self._excludes:
+            if path in excludes:
                 drop = False
             else:
                 drop = self._collect_drop_paths(sub_list, child) and drop

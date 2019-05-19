@@ -18,7 +18,7 @@ __all__ = ('Entry', 'Path', 'PathBuilder', 'EntryGroup', 'Optimizer', 'Detector'
 
 SHORT_MATCH     = re.compile(r'\A[\u0001-\u02ff]*\Z').match
 BLANK_FINDALL   = re.compile(r'\s+', re.U).findall
-SHRINK_SUB      = re.compile(r'[\x00-\x40\x5b-\x60\x7b-\x7f]+').sub
+SHRINK_SUB      = re.compile(r'[\x00-\x2f\x3a-\x40\x5b-\x60\x7b-\x7f]+').sub
 
 SCORE_LINK      = 2   # normal link
 SCORE_IMG       = 1   # image link
@@ -31,11 +31,21 @@ SCORE_DUP_URL   = -4  # penalty of url duplication (but not title)
 SCORE_DUP_TITLE = -1  # penalty of title duplication (but not url)
 SCORE_DUP_KEY   = -6  # penalty of url and title duplication
 
-HEADER_TAGS     = frozenset(('h1', 'h2', 'h3', 'h4', 'h5', 'h6'))
-GROUPING_TAGS   = frozenset(('ul', 'ol', 'dl', 'table', 'footer', 'header', 'main', 'nav'))
-NEST_TAGS       = frozenset(('ul', 'ol'))
+TAG_ANCHOR  = 1
+TAG_HEADER  = 2
+TAG_GROUP   = 3
+TAG_WRAPPER = 4
 
-UID_ATTR        = '_fd_uid_'
+TAG_TYPE = dict([(x, k) for k, v in iteritems({
+    TAG_ANCHOR:  ('a',),
+    TAG_HEADER:  ('h1', 'h2', 'h3', 'h4', 'h5', 'h6'),
+    TAG_GROUP:   ('ul', 'ol', 'dl', 'table', 'footer', 'header', 'main', 'nav'),
+    TAG_WRAPPER: ('li',),
+}) for x in v])
+
+UID_ATTR   = '_fd_uid_'
+INDEX_ATTR = '_fd_index_'
+TABLE_ATTR = '_fd_table_'
 
 
 def cached_property(f):
@@ -49,10 +59,42 @@ def cached_property(f):
     return property(getter)
 
 
+def set_index(parent):
+    for i, el in enumerate(parent, 1):
+        el.set(INDEX_ATTR, str(i))
+        set_index(el)
+    tag = parent.tag
+    if tag == 'td' or tag == 'th':
+        if parent.get('colspan', '') or parent.get('rowspan', ''):
+            el = next(parent.iterancestors('table'), None)
+            if el is not None:
+                el.set(TABLE_ATTR, 'spanned')
+    elif tag == 'ul' or tag == 'ol':
+        align_classes(parent, 'li')
+    elif tag == 'tbody' or tag == 'thead':
+        align_classes(parent, 'tr')
+    elif tag == 'table':
+        align_classes(parent, 'tr')
+        if parent.get(TABLE_ATTR, None) == 'spanned':
+            for el in parent.iterdescendants('td', 'th'):
+                el.attrib.pop(INDEX_ATTR, None)
+
+
+def align_classes(parent, target_tag):
+    it = parent.iterchildren(target_tag)
+    first = next(it, None)
+    if first is not None:
+        classes = set(first.get('class', '').split()).intersection(
+            *[x.get('class', '').split() for x in it])
+        classes = ' '.join([x for x in classes if x])
+        for x in parent.iterchildren(target_tag):
+            x.set('class', classes)
+
+
 class Entry(object):
     __slots__ = ('score', 'cbg_id', 'element', 'url', 'title', 'paths', 'fullpath')
 
-    def __init__(self, element, cbg_id):
+    def __init__(self, element, cbg_id, wrappers):
         self.score    = SCORE_LINK
         self.cbg_id   = cbg_id
         self.element  = element
@@ -61,19 +103,23 @@ class Entry(object):
         self.url      = (element.get('href') or u'').strip()
         self.paths    = self._build_paths(element)
         self.fullpath = self._build_fullpath(element)
+        wrapper = wrappers.get(element.get(UID_ATTR, ''))
+        if wrapper is not None:
+            wrapper_title = (wrapper.text_content() or u'').strip()
+            if len(self.title) < len(wrapper_title):
+                self.title = wrapper_title
         if not self.title:
+            l = 0
             for img in self.element.iterdescendants('img'):
-                self.title = (img.get('alt') or '').strip() or (img.get('title') or '').strip()
-                if self.title:
+                title = (img.get('alt') or '').strip() or (img.get('title') or '').strip()
+                if len(title) > l:
+                    self.title = title
                     self.score = SCORE_IMG
+                    l = len(title)
         if not is_valid_url(self.url):
             self.score = SCORE_DENY_URL
         elif not self.title:
             self.score = SCORE_NO_TITLE
-        elif SHORT_MATCH(self.title):
-            l = len(BLANK_FINDALL(self.title))
-            if l <= 2:
-                self.score = SCORE_LABEL if l <= 1 else SCORE_SHORT
         else:
             title = self._shrink_title(self.title)
             if len(title) <= 6:
@@ -95,7 +141,14 @@ class Entry(object):
             tagid   = el.get('id', '').strip() if rpaths else ''
             if tagid and tag != 'a':
                 paths.append(('%s#%s' % (tag, tagid),))
-            paths.append((tag,))
+            if tag == 'th' or tag == 'td':
+                idx = el.get(INDEX_ATTR, None)
+                if idx:
+                    paths = [('%s:nth-child(%s)' % (tag, idx),)]
+                else:
+                    paths.append((tag,))
+            else:
+                paths.append((tag,))
         if rpaths:
             paths = [x + y for x, y in itertools.product(paths, rpaths)]
         parent = el.getparent()
@@ -145,15 +198,17 @@ class Path(object):
 class PathBuilder(object):
 
     def __init__(self, document):
-        self._doc     = document
-        self._el_id   = 1
-        self._cbg_map = {}
-        self._prev_id = 0
-        self._hdr_id  = self._new_id()
-        self._cur_id  = self._new_id()
-        self._nesting = False
-        self._paths   = {}
-        self.paths    = []
+        self._doc      = document
+        self._el_id    = 1
+        self._cbg_map  = {}
+        self._prev_id  = 0
+        self._hdr_id   = self._new_id()
+        self._cur_id   = self._new_id()
+        self._paths    = {}
+        self.paths     = []
+        self._wrappers = {}
+        self._a_count  = 0
+        self._last_a   = None
         self._build_tree()
 
     def _remove_duplicated_id(self):
@@ -169,8 +224,21 @@ class PathBuilder(object):
         return self._prev_id
 
     def _cbg_anchor(self, el, tag):
-        self._cbg_map[el.get(UID_ATTR, '0')] = self._cur_id
+        el_id = el.get(UID_ATTR, '0')
+        self._cbg_map[el_id] = self._cur_id
+        self._a_count += 1
+        self._last_a = el_id
         self._context_base_grouping(el)
+
+    def _cbg_wrapper(self, el, tag):
+        outer = self._a_count
+        self._a_count = 0
+        self._last_a = None
+        self._context_base_grouping(el)
+        if self._a_count == 1 and self._last_a is not None:
+            self._wrappers[self._last_a] = el
+        self._a_count += outer
+        self._last_a = None
 
     def _cbg_header(self, el, tag):
         self._cur_id = self._hdr_id
@@ -185,15 +253,16 @@ class PathBuilder(object):
     def _context_base_grouping(self, parent):
         for el in parent:
             tag = el.tag.lower()
+            tag_type = TAG_TYPE.get(tag, None)
             el.set(UID_ATTR, STR_TYPE(self._el_id))
             self._el_id += 1
-            if tag == 'a':
+            if tag_type == TAG_ANCHOR:
                 self._cbg_anchor(el, tag)
-            elif tag in NEST_TAGS and self._nesting:
-                self._context_base_grouping(el)
-            elif tag in HEADER_TAGS:
+            elif tag_type == TAG_WRAPPER:
+                self._cbg_wrapper(el, tag)
+            elif tag_type == TAG_HEADER:
                 self._cbg_header(el, tag)
-            elif tag in GROUPING_TAGS:
+            elif tag_type == TAG_GROUP:
                 self._cbg_grouping(el, tag)
             else:
                 self._context_base_grouping(el)
@@ -211,7 +280,9 @@ class PathBuilder(object):
 
     def _iter_links(self, doc):
         default_id = self._new_id()
-        return (Entry(x, self._cbg_map.get(x.get(UID_ATTR, '0'), default_id))
+        cbg_map = self._cbg_map
+        wrappers = self._wrappers
+        return (Entry(x, cbg_map.get(x.get(UID_ATTR, '0'), default_id), wrappers)
                 for x in doc.iterdescendants('a') if LINK_MATCH(x.get(u'href', u'')))
 
     def _build_tree(self):
@@ -235,7 +306,7 @@ class EntryGroup(object):
         self.url_set   = frozenset([x.url for x in entries])
         self._score_duplication()
         self._score_fullpath()
-        self._score_cbg()
+        self.cbg_score = self._score_cbg()
 
     def add_path(self, path):
         self.paths.append(path)
@@ -268,9 +339,11 @@ class EntryGroup(object):
             self.score /= count * 0.9
 
     def _score_cbg(self):
-        scale = 0.6 if self.cbg_score > 0 else 1.5
+        score = self.score
+        scale = 0.6 if score > 0 else 1.5
         for x in xrange(1, len(frozenset([x.cbg_id for x in self.entries]))):
-            self.cbg_score *= 0.6
+            score *= scale
+        return score
 
 
 class Optimizer(object):
@@ -288,10 +361,13 @@ class Optimizer(object):
                 self._groups.append(group)
             group.add_path(path)
 
+    def sort_groups(self):
+        return sorted(self._groups, key=lambda x:(x.score, x.cbg_score), reverse=True)
+
     def optimize(self):
         self._remove_small_groups(4)
         self._occlusion_culling()
-        groups = sorted(self._groups, key=lambda x:x.score, reverse=True)
+        groups = self.sort_groups()
         result = [x for x in groups if x.score > 0]
         if len(result) >= 4:
             return result[:8]
@@ -313,7 +389,17 @@ class Optimizer(object):
 
 class Detector(BaseComponent):
 
+    def __init__(self, config={}):
+        super(Detector, self).__init__(config)
+        self._skip_optimization = config.get('skip_optimization', False)
+
+    def prepare(self, doc):
+        set_index(doc.root)
+
     def run(self, doc):
-        paths  = PathBuilder(doc).paths
-        result = Optimizer(paths).optimize()
-        return result
+        paths     = PathBuilder(doc).paths
+        optimizer = Optimizer(paths)
+        if self._skip_optimization:
+            return optimizer.sort_groups()
+        else:
+            return optimizer.optimize()

@@ -19,10 +19,14 @@ class BaseCoordinator(BaseComponent):
 
     def run(self, doc):
         tmp_doc = doc.copy()
+        self.prepare(tmp_doc)
         for f in self._filters:
             self.apply_filter(tmp_doc, f)
         groups = self.detect(tmp_doc)
         return self.format(doc, groups)
+
+    def prepare(self, doc):
+        self._detector.prepare(doc)
 
     def apply_filter(self, doc, f):
         return f.run(doc)
@@ -32,5 +36,3 @@ class BaseCoordinator(BaseComponent):
 
     def format(self, doc, groups):
         return self._formatter.run(doc, groups)
-
-

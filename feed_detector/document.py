@@ -36,6 +36,8 @@ class Encoding(object):
         'win1251': 'cp1251',
         'win-1251': 'cp1251',
         'windows-1251': 'cp1251',
+        'x-sjis': 'cp932',
+        'windows-31j': 'cp932',
     }
 
     def fix_charset(self, encoding):

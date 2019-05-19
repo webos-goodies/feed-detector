@@ -12,6 +12,7 @@ if sys.version_info[0] == 3:
 else:
     from urllib2 import Request, urlopen
 
+from feed_detector.compat      import *
 from feed_detector.coordinator import BaseCoordinator
 from feed_detector.document    import Document
 from feed_detector.filter      import BodyRemovalFilter
@@ -23,14 +24,22 @@ URL_RE = re.compile(r'\Ahttps?://', re.I)
 
 class PrintCoordinator(BaseCoordinator):
 
-  def __init__(self, config={}):
-    config = dict(config, filters=[BodyRemovalFilter], formatter=PrintFormatter)
-    super(PrintCoordinator, self).__init__(config)
+    def __init__(self, config={}):
+        config = dict(config, filters=[BodyRemovalFilter], formatter=PrintFormatter)
+        super(PrintCoordinator, self).__init__(config)
+        self._show_html = config.get('show_html', False)
+
+    def detect(self, doc):
+        if self._show_html:
+            print(doc.html())
+        return super(PrintCoordinator, self).detect(doc)
 
 
 def main():
     parser = OptionParser(usage="%prog: [options] <file or url>")
     parser.add_option('-u', '--url',  default=None, help="A document url")
+    parser.add_option('--show-html', action='store_true', help='Show filtered html')
+    parser.add_option('--skip-optimization', action='store_true', help='Show all candidates')
     options, args = parser.parse_args()
 
     if len(args) != 1:
@@ -53,8 +62,11 @@ def main():
         file.close()
         file = None
 
+    config = dict(options.__dict__)
+    del config['url']
+
     t = time.time()
-    PrintCoordinator({ 'filters':[BodyRemovalFilter], 'formatter':PrintFormatter }).run(doc)
+    PrintCoordinator(config).run(doc)
     print("\n%f secs." % (time.time() - t))
 
 
