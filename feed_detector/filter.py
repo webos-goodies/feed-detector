@@ -181,7 +181,7 @@ class BodyRemovalFilter(AbstractFilter):
         min_len = self.config.get('body_minimum_length', 0)
         done = self._done
         scores = self._scores
-        for el in reversed(list(element.iter('table', 'ul', 'div'))):
+        for el in reversed(list(element.iter('table', 'ul', 'div', 'p'))):
             if el in done:
                 continue
             done.add(el)

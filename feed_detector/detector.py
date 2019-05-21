@@ -101,9 +101,13 @@ class Entry(object):
         self.title    = ((element.text_content() or u'').strip() or
                          (element.get('title') or '').strip())
         self.url      = (element.get('href') or u'').strip()
-        self.paths    = self._build_paths(element)
         self.fullpath = self._build_fullpath(element)
         wrapper = wrappers.get(element.get(UID_ATTR, ''))
+
+        rv = [[], []]
+        self._build_paths(element, rv)
+        self.paths = rv[0] + rv[1]
+
         if wrapper is not None:
             wrapper_title = (wrapper.text_content() or u'').strip()
             if len(self.title) < len(wrapper_title):
@@ -131,29 +135,38 @@ class Entry(object):
         title = unicodedata.normalize('NFKD', to_unicode(title))
         return SHRINK_SUB(u'', title)
 
-    def _build_paths(self, el, rpaths=[]):
+    def _build_paths(self, el, rv):
         tag = el.tag
-        if tag in ('html', 'body') or len(rpaths) > 32:
+        ids = None
+        if tag in ('html', 'body'):
             paths = [(tag,)]
         else:
+            tagid = el.get('id', '').strip() if rv[0] else ''
+            if tagid and tag != 'a':
+                xsel = ('%s#%s' % (tag, tagid),)
+                ids  = [xsel + x for x in rv[0]] if rv[0] else [xsel]
             classes = el.get('class', '').split()[:2] # important class(es) may be put first.
             paths   = [('%s.%s' % (tag, x),) for x in classes]
-            tagid   = el.get('id', '').strip() if rpaths else ''
-            if tagid and tag != 'a':
-                paths.append(('%s#%s' % (tag, tagid),))
             if tag == 'th' or tag == 'td':
                 idx = el.get(INDEX_ATTR, None)
                 if idx:
                     paths = [('%s:nth-child(%s)' % (tag, idx),)]
                 else:
                     paths.append((tag,))
+            #elif not paths or (tag != 'div' and tag != 'p' and tag != 'span'):
             else:
                 paths.append((tag,))
-        if rpaths:
-            paths = [x + y for x, y in itertools.product(paths, rpaths)]
+        if len(rv[0]) + len(rv[1]) > 32:
+            paths = paths[-1:]
+        rv[0] = [x + y for x, y in itertools.product(paths, rv[0])] if rv[0] else paths
+        if rv[1]:
+            xsel   = paths[-1]
+            rv[1] = [xsel + x for x in rv[1]]
+        if ids is not None:
+            rv[1] += ids
         parent = el.getparent()
         if parent is not None:
-            paths = self._build_paths(parent, rpaths=paths)
+            paths = self._build_paths(parent, rv)
         return paths
 
     def _build_fullpath(self, el):
