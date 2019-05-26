@@ -141,7 +141,6 @@ class Document(BaseComponent):
 
     def _load_html(self):
         doc = lxml.html.document_fromstring(self._source, parser=self.PARSER)
-        doc = self.CLEANER.clean_html(doc)
         if self._url:
             try:
                 # such support is added in lxml 3.3.0
@@ -154,4 +153,5 @@ class Document(BaseComponent):
                 doc.make_links_absolute(base_href, resolve_base_href=True)
         else:
             doc.resolve_base_href()
+        doc = self.CLEANER.clean_html(doc)
         return doc.getroottree()
