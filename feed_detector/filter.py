@@ -15,7 +15,7 @@ UNLIKELY_CANDIDATES_RE = re.compile(u'combx|comment|community|disqus|extra|foot|
 MAYBE_CANDIDATE_RE = re.compile(u'and|article|body|column|main|shadow', re.I)
 CLEAN_LF_RE = re.compile(to_unicode(r'\s*\n\s*'))
 CLEAN_TAB_RE = re.compile(to_unicode(r'\t|[ \t]{2,}'))
-POSITIVE_RE = re.compile(u'article|body|content|entry|hentry|main|page|pagination|post|text|blog|story', re.I)
+POSITIVE_RE = re.compile(u'article|pagination|post|text|blog|story', re.I)
 NEGATIVE_RE = re.compile(u'combx|comment|com-|contact|foot|footer|footnote|masthead|media|meta|outbrain|promo|related|scroll|shoutbox|sidebar|sponsor|shopping|tags|tool|widget', re.I)
 
 
@@ -43,7 +43,7 @@ def _class_weight(el):
             if NEGATIVE_RE.search(feature):
                 weight -= 25
             if POSITIVE_RE.search(feature):
-                weight -= 25
+                weight += 25
     return weight
 
 def _score_node(el):
@@ -197,10 +197,6 @@ class BodyRemovalFilter(AbstractFilter):
                 for kind in ('p', 'img', 'li', 'a', 'embed', 'input'):
                     counts[kind] = len(el.findall('.//%s' % kind))
                 counts["input"] -= len(el.findall('.//input[@type="hidden"]'))
-
-                parent_node = el.getparent()
-                if parent_node is not None:
-                    score = scores[parent_node]['score'] if parent_node in scores else 0
 
                 content_length = _get_text_length(el)
                 link_density = _get_link_density(el)

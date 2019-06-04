@@ -17,6 +17,7 @@ __all__ = ('Entry', 'Path', 'PathBuilder', 'EntryGroup', 'Optimizer', 'Detector'
 
 
 SHORT_MATCH     = re.compile(r'\A[\u0001-\u02ff]*\Z').match
+LABEL_MATCH     = re.compile(r'\A[-+?&=%:/~#\w]+\.[-+?&=%:/\.~#\w]+\Z').match
 BLANK_FINDALL   = re.compile(r'\s+', re.U).findall
 SHRINK_SUB      = re.compile(r'[\x00-\x2f\x3a-\x40\x5b-\x60\x7b-\x7f]+').sub
 
@@ -126,7 +127,7 @@ class Entry(object):
             self.score = SCORE_NO_TITLE
         else:
             title = self._shrink_title(self.title)
-            if len(title) <= 6:
+            if len(title) <= 6 or LABEL_MATCH(self.title):
                 self.score = SCORE_LABEL
             elif len(title) <= 8:
                 self.score = SCORE_SHORT
@@ -158,16 +159,16 @@ class Entry(object):
                 paths.append((tag,))
         if len(rv[0]) + len(rv[1]) > 32:
             paths = paths[-1:]
+            ids   = None
         rv[0] = [x + y for x, y in itertools.product(paths, rv[0])] if rv[0] else paths
         if rv[1]:
-            xsel   = paths[-1]
+            xsel  = paths[-1]
             rv[1] = [xsel + x for x in rv[1]]
         if ids is not None:
             rv[1] += ids
         parent = el.getparent()
         if parent is not None:
-            paths = self._build_paths(parent, rv)
-        return paths
+            self._build_paths(parent, rv)
 
     def _build_fullpath(self, el):
         path = []
