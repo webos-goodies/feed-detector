@@ -4,7 +4,7 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 
 try:
     import cchardet as chardet
-except:
+except Exception:
     import chardet
 
 import copy
